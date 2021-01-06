@@ -1,0 +1,894 @@
+---
+title: "GPG"
+author: "[https://github.com/meGregV/GPG](https://github.com/meGregV/GPG)"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    includes:  
+      in_header: my_header.tex
+    latex_engine: xelatex
+    df_print: paged
+    fig_caption: yes
+  word_document: default
+urlcolor: blue  
+
+graphics: yes
+header-includes:
+- \usepackage{fontspec}
+
+number_sections: yes
+
+fig_width: 4 
+fig_height: 2 
+---
+
+
+```{r global options, include=FALSE}
+knitr::opts_chunk$set(error = TRUE, echo=FALSE, warning=FALSE, message=FALSE)
+op = function(x, d=2) sprintf(paste0("%1.",d,"f"), x) 
+```
+
+
+```{r libraries, echo=FALSE}
+# load all libraries 
+# grab tinytex if not installed (knitr specific)
+if(!tinytex:::is_tinytex()) tinytex::install_tinytex()
+if(!require(data.table)) install.packages('data.table', repos = 'http://cran.us.r-project.org')
+if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(rvest)) install.packages('rvest', repos = 'http://cran.us.r-project.org')
+if(!require(readxl)) install.packages('readxl', repos = 'http://cran.us.r-project.org')
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
+if(!require(ggcorrplot)) install.packages('ggcorrplot', repos = "http://cran.us.r-project.org")
+if(!require(e1071)) install.packages('e1071', repos = "http://cran.us.r-project.org")
+
+```
+
+## INTRODUCTION
+
+Men and women doing the same work at the same company must be equally compensated by law. The gender pay gap (GPG), defined as the difference in mean or median pay between men and women, has received growing attention from researchers, policy makers and the wider public. GPG is a complex aggregate measure resulting from differences in labor participation, education, skills, personal preferences, social and cultural norms, access and opportunities, responsibilities, levels of risk aversion and forward planning plus other characteristics such as age, ethnicity, etc. 
+
+While the pay gap has been falling in the last two decades, it remains substantial. At the same time, it is evident that the gender pay gap is not necessarily driven by employers discrimination as numerous other explanations have been proposed in the literature. Understanding the causes of the gender pay gap is crucial to provide adequate policy recommendations to reduce the gap. Misunderstanding gender pay gap may put unnecessary burden on companies resulting in ill-advised measures to close the gap. In reality it might do little to address the issue of gender discrimination akin to trying to reduce lung cancer while ignoring critical risks factors such as cigarette smoking or asbestos exposure. 
+
+The literature on GPG has been vibrant and many causes have been researched. Below are some examples:
+
+* Differences in psychological attributes, such as attitudes towards risk, competition and negotiation.
+* Family and fertility decisions as having children typically leads to career interruption for women, but not men.
+* Still prevailing differences in education, while better educational access for women has narrowed the gender educational gap in recent decade.
+* The difficulty for women to combine work and family, especially to work long or particular hours makes women favor jobs with greater flexibility, fewer hours, and closer proximity to home ("commute bias").
+
+While some of these factors could be driven inherently by gender discrimination as well, the [research](https://www.femtech.at/sites/default/files/should_we_mind_the_gap.pdf) that tried to control as many of these factors as possible has found that the GPG does level off. Therefore, if GPG is partly caused by women’s willingness to accept lower wages in exchange for greater flexibility and shorter commutes, then reducing the gap should focus on the reasons for women favoring more flexible jobs.
+
+Equipped with a publicly available UK employers data set, this project will have another look at GPG and construct a prediction model. As a stand along metric, modeled GPG  could still be beneficial in highlighting inherent trends in gender discrimination, especially when comparing to the peer companies. 
+
+## DATA 
+The primary dataset is sourced from [UK Goverment Equalities office](https://www.gov.uk/government/organisations/government-equalities-office) that helps to identify and manage gender pay gap  by collecting various pay metrics by gender from UK employers. This is mandatory process for UK organizations with over 250 employees and optional for those with smaller headcount.  The following metrics in percent are collected:
+  $$ mean(median)\   GPG\  in\  hourly\  pay:  \mu_{GPG}   =    {\frac{\mu_{hourly\_pay\_male} - \mu_{hourly\_pay\_female}}{\mu_{hourly\_pay\_male}}*100}   $$ 
+   
+ 
+  $$ mean(median)\ bonus\ GPG: \mu_{bonus} =  {\frac{\mu_{bonus\_male} - \mu_{bonus\_female}}{\mu_{bonus\_male}}*100}   $$ 
+  $$ proportion\ of\ males\ (females)\ receiving\ bonus: Prop_{rec\_bonus} =  {\frac{\sum_{gender\_employees\_rec\_bonus}}{\sum_{total\_gender\_employees}}*100}   $$ 
+
+  $$ proportion\ of\ males\ (females)\ in\ each\ pay\ quartile: Prop_{by\_quart} = {\frac{\sum_{gender\_employees\_in\_quartile}}{\sum_{total\_gender\_employees}}*100}   $$
+
+According to the website, 77% of organizations reporting in 2017/2018 had a gender pay gap favoring men. Since, due to COVID-19 pandemic, the GPG collection has been [suspended](https://www.gov.uk/government/news/employers-do-not-have-to-report-gender-pay-gaps) for 2020 year, this project will concentrate on more complete and publicly available [2019 and 2018 datasets](https://gender-pay-gap.service.gov.uk/viewing/download). 
+
+## ADDITIONAL DATA 
+To determine the gender of companies' "C-level" executives, an excellent dataset from [UK Office for National Statistics](https://www.ons.gov.uk/peoplepopulationandcommunity/birthsdeathsandmarriages/livebirths/datasets/babynamesinenglandandwalesfrom1996) was utilized. 
+
+Additionally, the industry data from [UK Companies House](https://resources.companieshouse.gov.uk/sic/) was used to convert 5-digit numeric UK Standard Industrial Classification [SIC](https://siccode.com/page/what-is-a-uk-sic-code) codes of economic activities to more verbose and descriptive codes. The following 21 industry sections representing more generic grouping are of specific interest:
+
+```{r industrySIC, echo=FALSE}
+#scrape industry codes and add section (one of 21 SiC)
+  url <- 'https://resources.companieshouse.gov.uk/sic/'
+  list <-  read_html(url) %>% 
+    html_nodes('table') %>% 
+    html_table()
+
+df_sic <- data.frame(Reduce(rbind, list)) #convert nested list to df
+tbl <- df_sic %>% filter(str_detect(Code, "Section [A-U]"))
+```
+``` {r print_SICs}
+kable(tbl, caption="UK SIC Industry Sections", booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+rm(list, tbl, url)
+
+```
+
+\newpage
+
+## OVERVIEW AND GOALS
+
+More insight could be gained from the available data set by analyzing the data by industry,  company size and CEO gender. The gender pay gap will be projected using a gamut of models and the best performing model will be highlighted. When trying to predict a numeric value, the residuals are important sources of information. Residuals are computed as the observed value minus the predicted value (i.e., $y_i−\hat{y_i}$). When predicting numeric values, the root mean squared error (RMSE) is commonly used to evaluate models. RMSE is interpreted as how far, on average, the residuals are from zero and is calculated as follows:
+
+$$ RMSE = \sqrt{\frac{1}{N}\displaystyle\sum_{u,i} (\hat{y}_{u,i}-y_{u,i})^{2}} $$
+
+Similar to other R-squared like measures such as Mean Absolute (MAE) or Mean Bias (MBE) Errors, RMSE is a *negatively-oriented* metric, i.e., the lower values are better. However, due to squared errors, RMSE tends to give more weight to large errors relative to the others and therefore, is more sensitive to outliers. The RMSE is always larger or equal to MAE for a sample size n as in:
+$$ MAE \leq RMSE \leq  \sqrt{n}  MAE $$
+Another easily interpretable metric is the coefficient of determination, $R^2$. This value can be interpreted as the proportion of the information in the data that is explained by the model. Practically speaking $R^2$ is  a measure of correlation rather then accuracy. 
+
+
+Assuming that collected GPG data point are [i.i.d.](https://en.wikipedia.org/wiki/Independent_and_identically_distributed_random_variables#:~:text=In%20probability%20theory%20and%20statistics,i.i.d.%20or%20iid%20or%20IID.) and the residuals have a theoretical mean of zero with constant variance of $\sigma^2$, the expectation of MSE could be decomposed as:
+
+$$ E[MSE] = \sigma^2 + Model Bias^2 + Model Variance  $$
+The first term $\sigma^2$ represents irreducible variance that cannot be eliminated by modeling. The *squared model bias* indicates how close the functional form of the model is able to represent the true relationship between predictors and the response. The *model variance* is self explanatory.  There exists a **variance bias trade-off** between the last two terms of the equation, as simpler models with low model variance tend to under-fit the true relationship while more flexible but complex models tend to over-fit due to lower model bias but high model variance.
+
+\newpage
+## DATA CLEANING {#dc} 
+### Extract: First Look
+
+The first 6 rows of the initial raw data set, and its summary are displayed in Tables 2 and 3 below. We observe that:
+
+* *EmployerName*, *companyNumber* and *CurrentName* are mutually exclusive identifier fields, so we will just keep *EmployerName* for simplicity.
+* *Address* and *CompanyLinkToGPGInfo*    might only be temporarily useful for grouping by *EmployerName* and should be safe to exclude from the scope of predictors going forward.
+* *SicCodes* is a supplementary variable to derive industry classification by *section* and is not useful (occurring with a very low frequency) as a predictor by itself.
+* *DiffMeanHourlyPercent* and *DiffMedianHourlyPercent* are two **[response](https://deepai.org/machine-learning-glossary-and-terms/response-variable)** variables to be analyzed and modeled.  They are likely to be highly correlated so it would sufficient to pick just one as our GPG proxy. We will decide which is more suitable based on the histogram and correlation matrix.
+* *DiffMeanBonusPercent*, *DiffMedianBonusPercent*, *MaleBonusPercent*, *FemaleBonusPercent* - all *bonus* related variables should be very industry specific and subject to a large reporting error.  Therefore, it might be prudent to avoid them completely to reduce modeling noise.
+* *MaleLowerQurtile* through *FemaleTopQuartile* should be useful predictors re-engineered into another variables as will be seen below.
+* *ResponsiblePerson* is generally a top level company officer.  It might be useful to derive their gender and apply as a predictor.
+* *EmployerSize* is a predictor that can potentially show GPG correlation with the company size.
+
+```{r load_sets}
+  if (!file.exists('dat.RDS')){
+    dat_url <- 'https://gender-pay-gap.service.gov.uk/viewing/download-data/2019'
+  dat <- read_csv(dat_url) 
+    dat %>% #remove extra columns
+    select(-SubmittedAfterTheDeadline, -DueDate, -DateSubmitted) %>% 
+      mutate(EmployerName = str_to_title(EmployerName)) -> dat} else {
+  dat <- readRDS('dat.RDS')} # reload the data set
+  #validation <- readRDS('validation.RDS')
+```
+
+```{r head_dat}
+  kable(head(dat[,1:7]), caption='Original Data: first 6 rows', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+  kable(head(dat[,8:18]), booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+  
+  kable(head(dat[,19:22]), booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+```
+
+
+```{r summary}
+kable(summary(dat[,1:7]), caption='Original Data: Summary', booktabs=TRUE, linesep="")  %>%
+kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+kable(summary(dat[,8:15]),  booktabs=TRUE, linesep="")  %>%
+kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+kable(summary(dat[,16:22]),  booktabs=TRUE, linesep="")  %>%
+kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+```
+
+\newpage
+
+### Transformation: Employee Size to Numeric 
+
+To begin it is useful to convert the character column with ***EmployerSize*** ranges to a new column ***Min Employees*** as seen in Table 4 below:
+
+``` {r employee size}
+ df <- data.frame(EmployerSize=c('Less than 250', '250 to 499', '500 to 999', '1000 to 4999', '5000 to 19,999', '20,000 or more'),
+                  MinEmployees = c(1,250,500, 1000, 5000, 20000))
+kable(df, caption='Transformation: Employee Size to Numeric', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'hold_position'))
+
+```
+
+
+### Transformation: Reduce with Grouping by 'ResponsiblePerson' 
+The raw dataset has multiple records for the same entity for instance satellite or regional offices reporting separately as per Table 5.
+```{r capita}
+capita <- dat %>%
+  filter(!is.na(ResponsiblePerson)) %>%
+  group_by(ResponsiblePerson) %>%
+  mutate(N=n()) %>%
+  ungroup() %>%
+  filter(N==max(N))
+
+ kable(capita[, -c(4,7:19,23)], caption='Same Company - Multiple Records', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+ rm(capita)
+
+```
+Therefore, we can reduce the original set with `r number(dim(dat)[1], big.mark=",", digits = 0)` rows and `r dim(dat)[2]` columns grouping by ***ResponsiblePerson***, taking means of GPG fields, and taking a row with max Employee Count in case they are different. 
+
+``` {r RespPerson_grouping}
+#2.2.Group by 'ResponsiblePerson' & remove columns that would not be in use
+ temp <- dat %>%
+    left_join(df, c('EmployerSize' = 'EmployerSize')) %>%
+    filter(!is.na(ResponsiblePerson)) %>% #removing NA will be added back later
+    group_by(ResponsiblePerson) %>% 
+    summarize(
+      across(where(is.numeric) & !starts_with('Min'), mean),
+      SicCodes = toString(unique(SicCodes)),
+      Name = toString(unique(EmployerName)),
+      across(c('EmployerName','SicCodes'), ~toString(.x)),
+      MinEmployees = max(MinEmployees),
+      WebLink =  CompanyLinkToGPGInfo[which(MinEmployees == max(MinEmployees))])  
+  
+   tempNA <-  dat %>%
+    select(-c(Address, CompanyNumber, CurrentName)) %>% #drop a few of fields
+    rename(WebLink=CompanyLinkToGPGInfo) %>% 
+    left_join(df, c('EmployerSize' = 'EmployerSize')) %>%
+    filter(is.na(ResponsiblePerson))    #removed NA from temp 
+
+pcnt <- 1 -  (dim(temp)[1] + dim(tempNA)[1])/dim(dat)[1]
+```  
+The resulting dataset has `r number(dim(temp)[1], big.mark=",", digits = 0)` rows and `r dim(temp)[2]` columns with numeric ***MinEmployees*** field from prior transformation. Adding back `r number(dim(tempNA)[1], big.mark=",", digits = 0)` rows of the original set with NA for ***ResponsiblePerson*** , we are still able to accomplish `r percent(pcnt)` reduction in size without any loss of information.
+
+### Transformation: Extract 'Job Function' to get 'C-level' executives
+Each ***ResponsiblePerson*** such as *`r temp[[1,1]]`*, can be converted into two separate fields: ***FirstName*** and ***JobFunction*** using this [Regex](https://regex101.com/r/lXLuRP/2/). Of these two supplementary fields ***FirstName*** will imply a person's gender  while ***JobFunction*** should define which ***ResponsiblePerson*** could be considered a power executive that hypothetically could be called a **C-level** executive. 
+
+``` {r first_name_and_function}
+ temp <- temp %>% 
+    mutate(RespPerson = str_replace(str_to_title(ResponsiblePerson), "(?:(Dr|Professor|Sir)\\ )",'')) %>% #remove prefix Dr|Sir 
+    extract(RespPerson, into=c('name', 'title'), '^(\\w+).*?\\(([^)]+?)\\)') %>% # https://regex101.com/r/lXLuRP/2/
+    mutate(title = str_squish(str_replace_all(title, c('\\.'= '', '\\-'=' '))))
+       # this is not used https://regex101.com/r/lXLuRP/1/
+   
+    # 3.1 assign C-level titles   
+    # titles <- temp[!duplicated(temp[,'title']), c('name', 'title')]
+   titles <- temp[!duplicated(temp[,'title']),  'title']
+          # https://regex101.com/r/h2m3Ut/5/
+   regx <- "^(?!.*\\b(?:Hr|Staff|Human|People|Personnel|Talent|Sales|Compensation|Benefits|Reward|Compliance|Vice)).*\\b(?:Ceo|Cfo|Cheif|Chief|Head|Chair|Chairman|Founder|Partner|President)\\b.*$"
+   titles$CLevel <- grepl(regx, titles$title, ignore.case=T, perl=T)
+```   
+
+To separate 'C-level' from middle management another [Regex](https://regex101.com/r/h2m3Ut/5/) comes in handy.  It should pull ***JobFunction*** with words in *(CEO, CFO, Chief, Head, Chair, Chairman, Founder, Partner, President)* while excluding the words such as *(Hr, Staff, Human, People, Personnel, Talent, Sales, Compensation, Benefits, Reward, Compliance, Vice)*. This way, *Vice President* is not being considered a 'C-level' type, but *President* would. 
+
+``` {r print_titles}
+ kable(head(titles, 10), caption='Transformation: Extracting JobFunction', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'hold_position', 'scale_down'))
+
+```
+
+### Transformation: Gender from 'Name'
+
+To imply the gender from the first name, the initial idea  to harvest the gender from a baby name website such as [nameberry.com](https://nameberry.com/babyname/Greg) did not prove fruitful.  It worked exceptionally well for gender unique names, but for the names applicable to both genders such as [Robin](https://nameberry.com/search?submitted=true&q=Robin) the website did not have counts of the name being likelier female or male. Instead, the dataset from [UK Office for National Statistics](https://www.ons.gov.uk/peoplepopulationandcommunity/birthsdeathsandmarriages/livebirths/datasets/babynamesinenglandandwalesfrom1996) was exploited to estimate gender proportions based on counts for UK since 1996.  
+
+``` {r gender_pull}
+    # 3.2.  build a gender db from UK office of national statistics dataset @ https://www.ons.gov.uk
+  if (!file.exists('names.RDS')){
+      source('gender_prob.R')
+  }
+   gender <- readRDS('names.RDS') #if RDS file exists, gender_prob.R script won't run
+   names <-  temp[!duplicated(temp[,'name']), 'name'] %>% 
+      left_join(gender, c('name' = 'name')) 
+```
+
+``` {r print_names}
+     kable(head(names, 10), caption='Transformation: Extracting FirstName', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'hold_position'))
+
+```
+
+\newpage
+
+### Transformation: Verbose Industry sections
+
+The industry sections were scraped from [SIC codes website](https://resources.companieshouse.gov.uk/sic/) to make use of various SIC industry codes reported by company:
+
+``` {r industry}
+#4.  add industry section  
+#scrape industry codes and add section (one of 21 SiC)
+
+  url <- 'https://resources.companieshouse.gov.uk/sic/'
+  list <-  read_html(url) %>% 
+    html_nodes('table') %>% 
+    html_table()
+
+#convert nested list to df
+  df <- data.frame(Reduce(rbind, list))
+
+#add an industry SIC section to lookup table
+  df %>% 
+    mutate(section=replace(Description, !grepl('Section', Code), NA))  %>%
+    fill(section) -> df
+```
+
+``` {r print_industry}
+ kable(head(df, 10), caption='Transformation: Extracting Industry Sections', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'hold_position'))  
+  
+```  
+
+### Load
+
+``` {r load}
+   # 3.3.  add C-level & gender back to temp 
+  temp <- temp %>% 
+    left_join(titles, c('title' = 'title')) %>% 
+    left_join(names, c('name' = 'name'))
+ 
+  # 3.4 stack back vertically with tempNA
+  temp <- tempNA %>%
+    select(-EmployerSize) %>% 
+    bind_rows(select(temp, -c(Name, prop)))
+```
+
+``` {r load2} 
+  
+ cleaned <- temp %>%
+    ungroup %>% 
+    mutate(row = row_number()) %>% #keep track of original rows
+    separate_rows(SicCodes, sep = ',\n') %>% #sep rows by code
+    left_join(df, c('SicCodes' = 'Code')) %>% #join by code
+    group_by(row) %>% #group 
+    mutate(SicCodes = toString(SicCodes), #write multiple codes to string
+           Description = toString(Description), #write multiple desc to string
+           section = {nm = sort(table(section), decreasing = TRUE)[1];if(!is.na(nm)) names(nm) else NA}) %>%   #add section
+    unique() %>%   #remove dupe rows
+    ungroup() %>% 
+    select(-row) %>% 
+    arrange(EmployerName)
+
+```
+ 
+A sample few rows of of the **cleaned** dataset shown in the Table 9 below before FEATURE ENGINEERING transformations has taken place.  As discussed at the beginning of [this section](#dc), we are to remove all supplementary or redundant fields such as *SicCodes*, all bonus variables, *Weblink*, *ResponsiblePerson*, *name*, *tittle*, *CLevel*, *Description*, before adding new variables. 
+``` {r trasformed}
+
+ kable(head(cleaned[,1:6]), caption='Transformed Data: first 6 rows', booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+
+  kable(head(cleaned[,7:13]), booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+  
+  kable(head(cleaned[,14:19]), booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+  
+  kable(head(cleaned[,20:25]), booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'scale_down', 'hold_position'))
+```  
+
+``` {r remove_redundant}
+ cleaned <- cleaned %>% 
+      select(!c(SicCodes, DiffMeanBonusPercent, DiffMedianBonusPercent, MaleBonusPercent, FemaleBonusPercent,
+               WebLink, ResponsiblePerson, name, title, CLevel, Description))
+```
+
+
+\newpage
+
+## DATA EXPLORATION & VISUALIZATION 
+``` {r sizes}
+mean <- dim(subset(cleaned,DiffMeanHourlyPercent >0))[1] / dim(cleaned)[1]
+med <- dim(subset(cleaned,DiffMedianHourlyPercent >0))[1] / dim(cleaned)[1]
+```
+As both ***median*** and ***mean*** values are reported, the plot below summarizes all the data with positive values for the companies where GPG is in men favor (`r percent(med)` of companies for the median and `r percent(mean)` for the mean), while negative values imply GPG in women favor. It can be observed that unlike the mean, which transitions smoothly, the median changes abruptly and is a bit sticky as a measure. The large number of median zeros can be explained by the companies that have a large proportion of their workforce (over 50 percent) paid the exact same rate, e.g. in retail. It is then not difficult to also have both the median male and the median female employee fall into that category, which would result in the median gap being zero, but not the mean. Given that both mean and median are highly correlated (see the correlation matrix further down), it might be prudent to use mean as the sole response variable to predict.
+  
+``` {r plot_hist}
+cleaned %>%
+  ungroup %>% 
+  select(c(DiffMedianHourlyPercent,DiffMeanHourlyPercent)) %>%
+  pivot_longer(everything()) %>%
+  #Filter
+  group_by(name) %>%
+  filter(between(value,-100,100)) %>%
+  ggplot(aes(x = value)) + 
+  geom_histogram(aes(fill = value<=0),
+                 breaks=seq(-100,100, by=2)) +
+  guides(fill=FALSE)+
+  scale_fill_brewer(palette="Set2") + 
+  theme_bw() +
+  theme(legend.position="none") +
+  facet_wrap(.~name,scales = 'free_x') +
+  labs(x = 'Differences in mean and median wages(%)', y = "Number of reporting companies") +
+  theme(strip.background = element_rect(color = 'black', fill = 'white'))
+```
+  
+
+Moving on, we can inspect another piece of available information, namely the reporting of gender proportion in each pay quartile. Let's take a slice of companies with at least a ***thousand*** employees on the payroll and pick three of them: with maximum **positive** mean hourly pay difference (representing largest pay gap favoring men), a zero mean ("equality"), and maximum **negative** (largest pay gap favoring women). 
+*Note that each quartile is plotted with 100 dots for visual percent representation, and does not represent an actual employee count.*
+
+1. **Arsenal Football Club** shows quite a large gap. However, allowing for a fact that football in UK has been dominated by men where former players are likely to occupy more senior and managerial roles, it is not all that surprising.  What is mildly surprising is  to see a percentage of women represented in Top Pay Quartile.
+
+2. **Caspian** shows approximately equal representation of both female and male employees in each quartile. The tilt is in favor of men in Top Quartile is likely offset by more women in the two Middle Quartiles.
+
+3. **Hyperoptic Ltd** is the most interesting.  It has a very few female employees all together with the largest portion of them are in the top quartile (still only ~20%). What is really driving the -61.6% GPG in women favor then?  Let's look at the [executive team](https://www.hyperoptic.com/team/) to gain more insight. One third (CEO and two more) out of nine total executives are female, similar to what Top Quartile shows. 
+It is not impossible that female CEO takes home the lion share of compensation comparing to other executives. If that were the case, it would not represent a win for women. On the contrary, one may argue that even Arsenal looks better employing more women across the board. 
+
+``` {r quartiles}
+
+sampled <- cleaned %>% 
+  filter(MinEmployees >= 1000) %>% 
+  filter(DiffMeanHourlyPercent == max(DiffMeanHourlyPercent) |
+           DiffMeanHourlyPercent == min(DiffMeanHourlyPercent) |
+           (DiffMeanHourlyPercent == 0)) %>% 
+  group_by(DiffMeanHourlyPercent) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(EmployerName, DiffMeanHourlyPercent) %>% 
+  arrange(desc(DiffMeanHourlyPercent))
+
+plot_quartiles <- function(CompanyName, DiffMean) {
+cleaned %>% 
+            filter(str_detect(EmployerName, paste('^', str_to_title(CompanyName), sep=''))) %>% # pick a company
+            select(matches('\\bMale\\w+le', perl=TRUE)) %>% # grab male quartiles
+            pivot_longer(everything()) %>% 
+            extract(name, c('gender', 'quartile'), '(\\bMale)(\\w+\\b)') %>% 
+            mutate(men=round(value), women = 100 - men) %>% 
+            select(-c(gender, value)) %>% 
+            pivot_longer(c('men','women'), names_to='gender', values_to='value') %>% 
+            mutate(quartile = str_replace(quartile,'(^\\w+?)(Middle)', '\\2\\1')) %>%  #sort quartiles
+            uncount(value) %>% # uncount counts
+            group_by(quartile) %>% 
+            mutate(row = (row_number() -1)%/% 10 + 1,
+                   col = (row_number() -1) %% 10 + 1) %>% # create matrices
+            ggplot() + 
+            ggtitle(paste(str_trunc(CompanyName,21),
+                          ', MeanPayDiff = ',
+                          paste0(DiffMean,'%'),   sep = ' ')) + 
+            aes(col, row, color=gender) + 
+            geom_point(shape=15) + 
+            facet_grid(~quartile) +
+            coord_equal()+
+            scale_color_brewer(palette="Set2") + 
+            theme_bw() +
+            theme(plot.title = element_text(size=8),
+                  strip.background = element_rect(color = 'black', fill = 'white'),
+                  strip.text.x = element_text(size=6),
+                  legend.title = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.text = element_blank(),
+                  axis.title = element_blank())
+ }
+
+
+p1 <- plot_quartiles(sampled[[1]][1], sampled[[2]][1])
+p2 <- plot_quartiles(sampled[[1]][2], sampled[[2]][2])
+p3 <- plot_quartiles(sampled[[1]][3], sampled[[2]][3])
+
+grid.arrange(p1, p2, p3)
+```  
+
+To see what is really happening with **Hyperoptic Ltd**, we sampled other two firms with 250 - 500 and 500 - 1000 employees respectively where Mean Pay Difference is the largest negative number in the group (GPG favoring women).  We see that both **David Brown** and **Harsco Metals** pay quartile distributions of women to men look strikingly similar to **Hyperoptic Ltd.** The prevalence of male employees could be explained by industry as both are metals and heavy machinery. While the executive team for David Brown is not available, it is hard to make sense of the negative Mean Pay by looking at **Harsco Metals** [executive team](https://www.harsco-environmental.com/leadership) with only female as HR head to 9 men in other leadership roles.
+As counter-intuitive as that may seem at first, let’s think it through: high participation for men implies their representation on the whole range of pay rates, from the lowest to the highest incomes. Lack of flexibility in the market makes it less enticing for low-skilled women to join or not worthwhile for employers to take on the costs of hiring women, or both. This means the women who are working at this companies are more likely to be *better skilled* and therefore better paid on average, which shifts their wage distribution higher than if their participation had been at the same level as that of men’s.
+
+Scaling this concept up to country levels, research has found a strong correlation between GPG and labor participation rates, i.e., countries with low levels of female labor participation are also the ones where GPG is the lowest. Here is the quote from [one such study](https://www.ituc-csi.org/IMG/pdf/gap-1.pdf): 
+*“The gender pay gap in some countries is distorted, even in favour of women in some countries (Bahrain, Costa Rica) due to the small proportion of women in the working population’s formal economy. For example, in the Middle East (where only about one third of women participate in the workforce), the gender pay gap is minus 40 per cent in Bahrain due to the greater representation of women in __elite roles__ in the labour market compared with the small number of women represented in the total workforce, while __the average earnings figure for men is pulled down__ by the greater representation of men in the overall labour market, and as a consequence also in the lower-paid roles.”*
+
+
+``` {r quartiles2}
+sampled2 <- cleaned %>% 
+  filter(MinEmployees >= 250) %>% 
+  arrange(DiffMeanHourlyPercent) %>% 
+  group_by(MinEmployees) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(EmployerName, DiffMeanHourlyPercent) 
+
+p3.1 <- plot_quartiles(sampled2[[1]][1], sampled2[[2]][1])
+p3.2 <- plot_quartiles(sampled2[[1]][2], sampled2[[2]][2])
+
+grid.arrange(p3.1, p3.2, p3)
+
+````
+
+To continue data exploration, it is informative to consider the breakdown by industry in the next plot.  The records with missing industry sector are excluded as well as industries with less than 10 companies.  The bands of Mean Hourly Pay Difference are sorted by average of Hourly Pay Difference (dots on the plot) and bars indicating 2 standard error deviation from the mean. It can be observed that GPG is relatively low in accommodation, food , utilities, and public sectors and gradually increasing in "higher" paid industries with **Finance and Insurance** having the highest GPG. 
+
+``` {r industry_plot}
+df <- cleaned %>% 
+  group_by(section) %>%
+  drop_na(section) %>% # remove NA section
+  mutate(section = str_extract(section, '^[\\S]+(?: +[\\S]+){0,3}')) %>%  # extract first 4 words https://regex101.com/r/BeiFAc/1/
+  summarize(cnt = n(),
+            avg = mean(DiffMeanHourlyPercent),
+            se = sd(DiffMeanHourlyPercent)/sqrt(cnt)) %>%
+  filter(cnt>10) %>% 
+  mutate(section = reorder(section, avg)) %>%
+  arrange(avg) %>% 
+  ungroup()
+
+p1 <- df %>% 
+        ggplot(aes(x=section, color = section, y=avg, ymin = avg - 2*se, ymax = avg + 2*se)) +
+        geom_point() +
+        geom_errorbar() +
+        scale_fill_brewer(palette='Set2') + 
+        theme_bw() +
+        theme(legend.position='none')
+
+p1 +  ggtitle('95% CI bands of Mean Hourly Pay by Industry') +
+  labs(y = 'Mean Hourly Pay') +
+  theme(text = element_text(size=10),
+              axis.text.x = element_text(angle = 90, hjust = 1),
+              axis.title.x = element_blank())
+```
+
+Naturally, it would be now quite interesting to inspect the pay quartiles of 3 sampled companies with at least 250 employees that belong to **Finance and Insurance** or the industry with the highest GPG. All three have a very similar quartile distribution pattern as well Mean Pay Differences of around 50%. There are more women than men employed in the lowest paid quartile while it gradually reverses for other three quartiles with the least proportion of women in the top pay quartile. Compared to the companies with negative Mean Pay Difference (GPG in favor of women) where there were a larger proportion of women in top paying quartiles, this is the opposite.  Again, we can hypothesize that high GPG in **Finance and Insurance** is due to having more men in senior positions. This is most likely due to a number of historical, educational and industry specific factors and not a result of "unequal pay for the same work". 
+
+Labor participation rates could be a critical factor impacting GPG. Let's take our thinking a step further and consider the following potential measure to reduce if not reverse GPG for the sampled finance and insurance companies below.  Presumably, firing all women in the lower pay quartile and replacing them with men would turn the tables and should have an effect similar to **Hyperoptic Ltd** and drastically improve GPG metric by itself.  However, let us ask ourselves if that really would be a win for women...
+
+
+``` {r finance_quartiles }
+
+sampled3 <- cleaned %>% 
+  filter(MinEmployees >= 250, str_detect(section, '^Financial')) %>% 
+  arrange(desc(DiffMeanHourlyPercent)) %>% 
+  group_by(MinEmployees) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(EmployerName, DiffMeanHourlyPercent) 
+
+p3.1i <- plot_quartiles(sampled3[[1]][1], sampled3[[2]][1])
+p3.2i <- plot_quartiles(sampled3[[1]][2], sampled3[[2]][2])
+p3.3i <- plot_quartiles(sampled3[[1]][3], sampled3[[2]][3])
+
+grid.arrange(p3.1i, p3.2i, p3.3i)
+ 
+```
+
+\newpage
+
+Exploring the company size potential predictive power, we observe from the below plot that it does not exhibit any meaningful relationships. The response is right skewed and distributed fairly uniformly in relation to the company size:
+
+``` {r company_size}
+  H1 <- cleaned %>% 
+    ggplot(aes(x=DiffMeanHourlyPercent,  fill= factor(MinEmployees))) +
+    geom_density(alpha=.4, size=.5) 
+  
+  H1 + scale_fill_brewer(palette="YlOrBr") +
+    ggtitle("GPG distribution by company size") +
+    theme_minimal() +
+    labs(fill = "Min # Employees") +
+    theme(legend.position=c(.3,.4), plot.title = element_text(hjust=0.5))
+
+```
+
+\newpage
+On the other hand, our derived predictor for CEO gender appears to show some correlation:
+
+``` {r CEOgender}
+H2_hat <- cleaned %>% 
+  drop_na(Gender) %>% 
+  group_by(Gender) %>% 
+  summarize(avg = round(mean(DiffMeanHourlyPercent), 2))
+
+cleaned %>% 
+  drop_na(Gender) %>% 
+    ggplot(aes(x=Gender, y=DiffMeanHourlyPercent, fill=Gender))+
+    geom_violin(scale='count') +
+    stat_summary(fun=mean, geom="point", fill='white', shape=21, size=4) +
+    geom_text(data=H2_hat, aes(label= avg, y = avg+6))+
+    ggtitle("GPG distribution by CEO gender, with means shown") +
+    theme_minimal() +
+    theme(axis.title.x = element_blank(), axis.text.x = element_text(size = 13),
+          legend.position="none", plot.title = element_text(hjust = 0.5))+
+    scale_colour_manual(values=c("#CC6666", "#3399FF"))
+
+```
+
+\newpage
+A larger volume and higher median in two lower quartiles for female and the same for males in the top two quartiles could be observed on the below box-plot of pay quartile ratios.  Noticeably, the dispersion is more pronounced **in the bottom and top quartiles** than in the middle two.  In addition, the presence of numerous *outliers* in the whiskers indicates the noisiness of the data which will complicate our predictive ability. 
+
+
+``` {r quartile_ratios}
+
+(H4 <- cleaned %>% 
+  mutate(pctMaleLQ = MaleLowerQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleLMQ = MaleLowerMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleUMQ = MaleUpperMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleTQ = MaleTopQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctFemaleLQ = FemaleLowerQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleLMQ = FemaleLowerMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleUMQ = FemaleUpperMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleTQ = FemaleTopQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         SkewGenderLQ = pctMaleLQ-pctFemaleLQ,
+         SkewGenderLMQ = pctMaleLMQ-pctFemaleLMQ,
+         SkewGenderUMQ = pctMaleUMQ-pctFemaleUMQ,
+         SkewGenderTQ = pctMaleTQ-pctFemaleTQ) %>% 
+  pivot_longer(cols=starts_with('pct') & ends_with('Q'),
+               names_to = c('gender', 'quartile'),
+               names_pattern = '(Male|Female)(LQ|LMQ|UMQ|TQ)',
+               values_to = 'value') %>% 
+  ggplot(aes(x=factor(quartile, levels= c('LQ', 'LMQ', 'UMQ', 'TQ')), y=value*DiffMeanHourlyPercent))+
+  geom_boxplot(aes(fill=gender)) + 
+  labs(title='Distribution of GPG by quartile', 
+       y='Diff Mean Hourly Pay') +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(),  plot.title = element_text(hjust = 0.5)))
+```
+
+\newpage
+Finally, the correlation matrix for all numerical variables should prove instructive of variables to remove. In general, there are good reasons to avoid data with highly correlated predictors. First, redundant predictors frequently add more complexity to the model than information they provide to the model. It could also be computationally costly to have more variables. Finally, using highly correlated predictors in techniques like linear regression can result in highly unstable models, numerical errors, and degraded predictive performance. All these reasons are critical to the Neural Networks models which will be reviewed in more details in the MODELING section. 
+
+It can be observed that
+
+* Two response variables, mean and median are highly correlated so leaving mean and removing median is confirmed to make sense.
+* Original female and male percent quartiles have weak correlation with the responses. However, our derived skew predictors show stronger correlation. Moreover, the correlation goes from high negative to high positive by skew quartile.
+* the company size shows a weak relation to the response which is most likely due to scaling differences (company size in 1000 while the gap in %)
+
+``` {r cor}
+cleanedCor <- cleaned %>%
+  mutate(pctMaleLQ = MaleLowerQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleLMQ = MaleLowerMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleUMQ = MaleUpperMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctMaleTQ = MaleTopQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+         pctFemaleLQ = FemaleLowerQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleLMQ = FemaleLowerMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleUMQ = FemaleUpperMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         pctFemaleTQ = FemaleTopQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+         SkewGenderLQ = pctMaleLQ-pctFemaleLQ,
+         SkewGenderLMQ = pctMaleLMQ-pctFemaleLMQ,
+         SkewGenderUMQ = pctMaleUMQ-pctFemaleUMQ,
+         SkewGenderTQ = pctMaleTQ-pctFemaleTQ) %>% 
+  select(where(is.numeric)) %>%
+  cor() %>% 
+  round(2)
+library(ggcorrplot)
+ggcorrplot(cleanedCor)
+
+``` 
+
+
+\newpage
+
+## FEATURE ENGINEERING
+
+*“If you torture the data long enough, it will confess.”  
+--Ronald H. Coase*
+
+### Adding Variables: Quartile Skew
+The way the predictors are encoded can have a significant impact on model performance. For example, using combinations of predictors can sometimes be more effective than using the individual values: the ratio of two predictors may be more effective than using two independent predictors. Often the most effective encoding of the data is suggested by the our understanding of the problem and thus is not derived from any mathematical technique. Here, we engineer a new set of variables from percent quartiles by estimating the ratio of $n^{th}$ quartile over total percent by gender and calculating the skew of male vs female by quartile:
+
+$$ pct\ Male\ n^{th}\ Quartile\   =    {\frac{male\ n^{th}Q}{maleLowerQ + maleLowerMiddleQ + maleUpperMiddleQ + maleTopQ}}   $$ 
+   $$ Skew\ Gender\ n^{th} \ Quartile\ = \  pctMale\ n^{th}Q - pctFemale\ n^{th}Q   $$ 
+
+
+``` {r skew}
+ cleaned <- cleaned %>% 
+      mutate(pctMaleLQ = MaleLowerQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+             pctMaleLMQ = MaleLowerMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+             pctMaleUMQ = MaleUpperMiddleQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+             pctMaleTQ = MaleTopQuartile/(MaleLowerQuartile + MaleLowerMiddleQuartile + MaleUpperMiddleQuartile + MaleTopQuartile),
+             pctFemaleLQ = FemaleLowerQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+             pctFemaleLMQ = FemaleLowerMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+             pctFemaleUMQ = FemaleUpperMiddleQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+             pctFemaleTQ = FemaleTopQuartile/(FemaleLowerQuartile + FemaleLowerMiddleQuartile + FemaleUpperMiddleQuartile + FemaleTopQuartile),
+             SkewGenderLQ = pctMaleLQ-pctFemaleLQ,
+             SkewGenderLMQ = pctMaleLMQ-pctFemaleLMQ,
+             SkewGenderUMQ = pctMaleUMQ-pctFemaleUMQ,
+             SkewGenderTQ = pctMaleTQ-pctFemaleTQ)
+
+```
+### Adding Variables: Converting factors to numeric
+When a predictor is categorical such as gender or ethnicity, it is beneficial to decompose the predictor into a set of binary variables. For example, for our gender predictor with $value = female$, we would generate two "dummy" variables $gender.male = 0$ and $gender.female = 1$. Another categorical variable for the *industry section* would generate `r n_distinct(cleaned$section)` variables for each section. 
+
+### Removing variables
+Of the dummy variables generated for the *industry section*, there are a few with a frequency that is severely disproportionate. These are called **near-zero** variance predictors and should be removed. 
+
+```{r dummies}
+
+dummyModel <- dummyVars(~ Gender + section, data = cleaned, levelsOnly = TRUE )
+    dummies <- data.frame(predict(dummyModel, newdata = cleaned))
+    nearZeroVar(dummies, saveMetrics = TRUE) # to print
+    k <- nearZeroVar(temp) # dummy cols w/ near-zero var to remove
+    dummies <- dummies[-k] #remove
+
+
+```
+### Transformation: Center & Scale 
+To center a predictor variable, the average predictor value is subtracted from all the values. As a result of centering, the predictor has a zero mean. Similarly, to scale the data, each value of the predictor variable is divided by its standard deviation. Scaling the data coerce the values to have a common standard deviation of one. These manipulations are used to improve the numerical stability of data at the expense of interpretability of the individual values as the data is no longer in the original units. 
+
+### Transformation: Variable Reduction
+
+There are potential advantages to removing predictors prior to modeling:
+
+* Fewer predictors means decreased computational time and complexity.
+* If two predictors are highly correlated, this implies that they are measuring the same underlying information. Removing one should not compromise
+the performance of the model and might lead to a more parsimonious and interpretable model.
+* Some models can be crippled by predictors with degenerate distributions. In such cases, model performance and/or stability can be improved significantly without the problematic variables.
+
+The variable reduction is accomplished via [PCA](https://en.wikipedia.org/wiki/Principal_component_analysis) from *caret* $PreProcess$ function. While the function also has the ability to impute the missing data using various methods such a *knn*, the sample size is large enough so that we could just drop the missing data without much loss of information. 
+
+
+### Transformation: Remove [Skewness](https://en.wikipedia.org/wiki/Skewness)
+This is to transform the predictors so that the probability of falling on either side of the distribution's mean is roughly equal. R *caret* package uses a statistical technique called "Box Cox"  that determines an appropriate $\lambda$ parameter (e.g. - 1 for inverse  or .5 for square root transformation) using [MLE](https://en.wikipedia.org/wiki/Maximum_likelihood_estimation). This would be applied independently for each predictor. Skewness by predictor is shown below and it can be observe that Minimum Number of Employees is very skewed. 
+``` {r skewness}
+  predictors <- cleaned %>% 
+      select(!c(DiffMeanHourlyPercent, DiffMedianHourlyPercent)) %>% 
+      select(where(is.numeric))
+    
+    temp <- round(data.frame(apply(predictors, 2, skewness)), digits = 2)
+    c('Skew Values')-> names(temp)
+    
+  kable(temp, booktabs=TRUE, linesep="")  %>%
+  kable_styling(latex_options =c('striped', 'hold_position'))
+    
+````
+
+
+
+\newpage
+
+## MODELLING
+*“All models are wrong, but some are useful.”  
+--George E.P. Box*
+
+Next, we are going to select a regression (not a classification) model concerned with predicting the GPG which is a continuous variable. Most of the background on GPG has been already provided in the earlier sections.
+
+Almost all predictive modeling techniques have tuning parameters that enable the model to flex to find the structure in the data. Hence, we must use the existing data to identify settings for the model’s parameters that yield the best and most realistic predictive performance (known as model tuning). Traditionally, this has been achieved by splitting the existing data into training and test sets.  We will be using 90/10 partition and 5-fold cross-validation to tune a series of models starting with more "rigid" linear models, followed by non-linear models, decision trees and rule-based models. 
+
+```{r modeling_data}
+if (!file.exists('cleaned.RDS')){
+  source('data.clean.r')}
+
+cleaned  <- readRDS('cleaned.RDS')
+transformed <- readRDS('transformed.RDS')
+
+dat <- cleaned %>% 
+    select(c(DiffMeanHourlyPercent)) %>% 
+    cbind(transformed) %>% 
+    drop_na()
+
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = dat$DiffMeanHourlyPercent,
+                                  times = 1, p = 0.1, list = FALSE)  
+GPG_train <- dat[-test_index,]
+GPG_test <- dat[test_index,]
+
+#  split data into predictor space and response
+trainX <- select(GPG_train,!c(DiffMeanHourlyPercent))
+trainY <- GPG_train$DiffMeanHourlyPercent
+
+testX <- select(GPG_test,!c(DiffMeanHourlyPercent))
+testY <- GPG_test$DiffMeanHourlyPercent
+
+```
+Looking at the following three consecutive box plots for each metric, the majority of trained models demonstrate surprisingly uniform results, with Support Vector Machine with Radial Kernel ("SVM")  and Model Averaged Neural Network ("AvgNNet") having the slight edge over the others, while Model Trees and Bagged Tree models under-performing. It is also quite remarkable that the variations of linear models such as Partial Least Squares or Elastic Net did not do better than Ordinary Least Squares Linear Regression ("LM"). As the dataset is prone to outliers as has been shown on "Distribution of GPG by quartile" plot in DATA EXPLORATION section, $MAE$ results are also shown as $MAE$ is expected to be less sensitive to the outliers compared to $RMSE$.  However, the $MAE$ metrics by model are fairly consistent with $RMSE$.
+
+
+``` {r train_models}
+if (!file.exists('trained_models.rds')){
+      source('data.model.R')  }
+train_models <- readRDS('trained_models.RDS')  
+train_resamps <-  resamples(train_models)
+#summary(train_resamps)  
+```
+```{r bw_model_plots}
+
+bwplot(train_resamps, metric = 'RMSE')
+bwplot(train_resamps, metric = 'MAE')
+bwplot(train_resamps, metric = 'Rsquared')
+
+```
+
+Based on the train set results, three models, **Linear Regression, Neural Network and Support Vector Machine** are preliminary selected for further assessment using the test dataset (10% of the original data). The below plot and table  compare the metrics of these models predictions fitted to the test set: 
+
+```{r plot_test3 }
+selected_models <- train_models[c('Linear Reg', 'SVM Radial', 'Neural Networks')]
+resample_train <- lapply(selected_models, function(x) postResample(predict(x, GPG_train), trainY))
+resample_test <- lapply(selected_models, function(x) postResample(predict(x, GPG_test), testY))
+
+trn <- cbind(model = names(resample_train), unnest_wider(tibble(models=resample_train), models)) 
+trn[,-1] <- round(trn[,-1],2)
+tst <- cbind(model = names(resample_test), unnest_wider(tibble(models=resample_test), models)) 
+tst[,-1] <- round(tst[,-1],2)
+
+trn['dataType'] = 'Train'
+tst['dataType'] = 'Test'
+
+long_tbl <- rbind(trn, tst) %>%
+  pivot_longer(cols =!c('model', 'dataType'), names_to = 'metric', values_to='value')
+
+(ggplot(long_tbl, aes(x=model, y=value, shape = dataType, colour = metric )) + 
+  geom_point() +
+  facet_wrap(~metric,scale="free_y",ncol=1) +
+  theme_bw() +
+  theme(panel.spacing=grid::unit(0,"lines"),
+        strip.background=element_blank(), strip.text.x=element_blank(),
+        axis.title = element_blank()))
+
+```
+
+
+
+```{r test3}
+trn <- trn[-5]
+tst <- tst[-5]
+
+library(kableExtra)
+kbl(merge(trn, tst,  by = 'model',  suffixes = c('', '.tst'), booktabs = T)) %>%
+  kable_classic() %>%
+  add_header_above(c(" " = 1, "Train" = 3, "Test" = 3)) %>% 
+  column_spec(5, border_left = T, bold = T ) %>% 
+  column_spec(2, bold = T, color = "white", background = "black") %>% 
+  column_spec(5, bold = T, color = "white", background = "black")
+```
+As could also be seen from the plot, $SVM$ model is the one poorly performed on the test data.  It indicates significant over-fitting having produced a test $RMSE$ of 9.16 compared to train $RMSE$ of 7.86, or 1.3 $RMSE$ increase. It also shows a **lower** test $R^2$ (0.55 vs 0.64).  Contrary to $SVM$, the Neural Networks model looks very stable on the test data, with only 0.11 $RMSE$ increase from 8.55 trained $RMSE$.  It also appears to be marginally better than Linear Regression with $RMSE$ lower by about 0.7 less $RMSE$ and 6-7% larger $R^2$.  Therefore, we declare *Model Averaged Neural Networks* a winner!  Let us describe it in more details. 
+
+[Neural Networks](https://towardsdatascience.com/first-neural-network-for-beginners-explained-with-code-4cfd37e06eaf) create at least one layer of  go-in-between variables that cannot be observed (Hidden Units). The relationship between the original predictors and this layer of variables is non-linear. However, the response is modeled from this intermediary subset using linear relationship. Every coefficient in resulting linear combinations, $\beta_{ij}$, carries the effect of $i^{th}$ original predictor on the $j^{th}$ intermediary variable. For the model used here, the number of total parameters in the final prediction equation is defined as $K(P+1) +K+1$ where $K$ is the number of intermediary variables and $P$ is the number of predictors (5 post PCA transformation in our model). Neural Networks could grow increasingly complicated having multiple intermediary subsets of Hidden Units modeling each other. This often leads to optimization issues, model instability, and tendency to over-fit.  A technique called *model averaging* uses random starting guesses to create several models and then average their results. Model averaging is known to produce a more stable prediction. 
+
+```{r plotNN}
+  plot(train_models$'Neural Networks')
+
+```
+
+For this project, Model Averaged Neural Networks uses a single intermediary layer with the following tuning parameters:
+
+
+* $caret$ method: ['avNNet'](https://www.rdocumentation.org/packages/caret/versions/6.0-86/topics/avNNet) 
+* weight decay: $\lambda = (0, 0.01, 0.1)$ to penalize large regression coefficients to reduce the over-fitting
+* size of neurons in the layer:  1 to 5
+* maximum iteration: 500
+* bag: FALSE , i.e., no bootstrapping
+
+The optimal model per RMSE criteria plot above uses $\lambda = 0$ and 5 neurons. The fairly simplistic Neural Network model utilized only 5 PCA predictors and was not computationally expensive.  However, should we not have used PCA to reduce the number of predictors or added more predictors (see CONCLUSION) it could require substantially more computational muscle.
+
+\newpage
+To evaluate the quality of the models we proceed to visualize the results. The plot of **the observed against the predicted** values helps to understand how well models fit. The diagonal blue line indicates where observed and predicted values would be equal. For both remaining models, Linear Regression and Neural Network, there is no visual evidence of over- or under-fitting, i.e., there is no systematic bias in the predictions. 
+
+
+```{r obsVspred}
+results <- bind_rows(data.frame('obs'=trainY, 'pred'=predict(train_models$`Linear Reg`, GPG_train), 'model' = 'Linear_Reg', 'dataType' = 'Training'),
+                     data.frame('obs'=testY, 'pred'=predict(train_models$`Linear Reg`, GPG_test),   'model' = 'Linear_Reg', 'dataType' = 'Test'),
+                     data.frame('obs'=trainY, 'pred'=predict(train_models$`Neural Networks`, GPG_train), 'model' = 'Avg_Neural_Ntwks', 'dataType' = 'Training'),
+                     data.frame('obs'=testY, 'pred'=predict(train_models$`Neural Networks`, GPG_test),   'model' = 'Avg_Neural_Ntwks', 'dataType' = 'Test'),
+                    )
+
+results['residuals']= results$obs - results$pred
+
+#obs vs predicted
+ggplot(results, aes(x=pred, y=obs)) +
+  geom_point(alpha=1/5, colour='sienna3') +
+  geom_abline(colour='blue') +
+  facet_grid(rows=vars(dataType), cols= vars(model), switch = 'y', scales = 'free')  +
+  theme_bw() +
+  theme(strip.text.x = element_text(size=8, face='bold'),
+        strip.text.y = element_text(size=10, face='bold'),
+        strip.background = element_rect(colour='lightblue', fill='white'))
+```
+
+\newpage
+
+In addition, **the residual against the predicted** plot  shows the residuals are more or less randomly scattered about red horizontal line (at zero) and there are no noticeable clusters or patterns.
+There is no clear winner in the two models based on these plots which look very similar. 
+
+
+```{r resVspred}
+# residuals vs predicted
+ggplot(results, aes(x=pred, y=residuals)) + 
+  geom_point(alpha=1/8, colour='steelblue') + 
+  geom_abline(slope = 0, colour='indianred') +
+  facet_grid(rows=vars(dataType), cols= vars(model), switch = 'y', scales = 'free')  +
+  theme_bw() +
+  theme(strip.text.x = element_text(size=8, face='bold'),
+        strip.text.y = element_text(size=10, face='bold'),
+        strip.background = element_rect(colour='lightblue', fill='white'))
+
+```
+
+\newpage
+
+## CONCLUSION
+
+This has been quite the journey! A number of models performed similarly to predict the GPG and **Model Averaged Neural Networks**  did slightly better than others.  Was it significantly better?  It is not easy to decide, but given that the model is essentially a  black box with a highly complex prediction algorithm, the linear regression looks just as attractive, is simpler and a lot more interpretable. Consequently, we feel that **Linear Regression** should be the model of choice for our GPG modeling. 
+
+For GPG response variable with $mean$ of 14 and *standard deviation* of 13.6, the Neural Networks model achieved a test $RMSE$ of 8.68 and $R^2$ of 0.59. Are these good or bad metrics? As $RMSE$ measures the standard deviation of the error distribution, being smaller than a standard deviation of response is encouraging.  However, the real answer is that it cannot be determined solely based on just statistical expertise and without additional competence in the subject matter.  Still, based on the outside GPG research reviewed, our dataset predictor space leaves out some of most critical predictors such as *age, race, tenure, highest education level or commute time* among others. As such, it is advisable to collect more predictors to be able to explain more variation not captured in the data.
+
+Among other future considerations for predictors, a data transformation called *spatial sign*  could be performed to minimize the sensitivity to outliers. Also, given a substantial size of the data set, all observations with missing data we removed. Inputting them using *knn* or other method could potentially improve the fit. 
+
+
+
+\newpage
+
+## BIBLIOGRAPHY
+
+Irizarry, Rafael A. (2019) [Introduction to Data Science : Data Analysis and Prediction Algorithms with R](https://rafalab.github.io/dsbook/)
+
+Xie, Yihui; Allaire, J.J.; Grolemund, Garrett (2019) [Rmarkdown: The Definitive Guide](https://bookdown.org/yihui/rmarkdown/yihui-xie.html)
+
+Kuhn, Max;  Johnson, Kjell (2013) "Applied Predictive Modeling", Springer  http://appliedpredictivemodeling.com/  
+
+James, Gareth; Witten, Daniela; Hastie, Trevor; Tibshirani, Robert (2013) "An Introduction to Statistical Learning" , Springer  
+
+Wickham, Hadley (2009), "Elegant Graphics for Data Analysis" , Springer  
+
