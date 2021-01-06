@@ -1,4 +1,4 @@
- -   [Gender Pay Gap](#gender-pay-gap)
+-   [Gender Pay Gap](#gender-pay-gap)
     -   [Files](#files)
     -   [Data Source](#data-source)
     -   [How to Reproduce](#how-to-reproduce)
