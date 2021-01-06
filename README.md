@@ -40,7 +40,7 @@ secondary R script containing EDA and visualization, stand along from the other 
 
 #### *`data.modeling.r`*
 main R script that pulls the data, runs models and outputs results.
-*train_models.RDS* gets created to avoid lenthly re-run for Rmd file 
+*train_models.RDS* gets created to avoid lengthly re-run for Rmd file 
 
 ## Data Source
 [UK Goverment Equalities office](https://www.gov.uk/government/organisations/government-equalities-office)
