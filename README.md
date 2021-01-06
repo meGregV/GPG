@@ -63,6 +63,6 @@ install.packages(c("tidyverse", "data.table", "rvest", "caret", "corrplot", "ggc
 ``` r
   if(!tinytex:::is_tinytex()) tinytex::install_tinytex()
 ```
-4.  Run `data.clean.r` followed by `data.model.r', then `knit` 
+4.  Run `data.clean.r` followed by `data.model.r`, then `knit` 
 
 **The entire repository can be cloned (or use "Download ZIP" option under big green "CODE" button).**
