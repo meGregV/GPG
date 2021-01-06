@@ -6,19 +6,19 @@
 
 ## Files
 
-### *`GPG.rmd`*
+#### *`GPG.rmd`*
 Rmarkdown file that would knit everything together into pdf.
 * *`my_header.tex`* - **won't knit without it** as it part of `YAML` header
     
-### *`GPG.pdf`*
+#### *`GPG.pdf`*
 Output pdf document (code is omitted for clarity)
 
 There are 3 main and 1 helper R files:
 
-### *`data.clean.r`* 
+#### *`data.clean.r`* 
 initial R script collecting, cleaning & transforming the data
 * saves a few `rds` files to be used by other scripts and by `GPG.Rmd`
-* ### *`gender.prob.r`*
+* #### *`gender.prob.r`*
    a helper script to grab gender proportions by name
    
 <blockquote class="twitter-tweet" lang="en">
@@ -35,10 +35,10 @@ Data cleaning code cannot be clean. It's a sort of sin eater.
 
 </blockquote>
 
-### *`data.plot.R`* 
+#### *`data.plot.R`* 
 secondary R script containing EDA and visualization, stand along from the other scripts
 
-### *`data.modeling.r`*
+#### *`data.modeling.r`*
 main R script that pulls the data, runs models and outputs results.
 *train_models.RDS* gets created to avoid lenthly re-run for Rmd file 
 
